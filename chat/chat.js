@@ -93,12 +93,12 @@ Chatter.prototype.getFriends = function() {
     self.socket.on('friends', function(data) {
         wrapper = self._makeFriendsContainer();
 
-        for (var prop in data) {
+        for (var i = 0, l = data.length; i < l; i++) {
 
-            if (prop != self.username) {
+            if (data[i].name != self.username) {
                 button = document.createElement('button');
-                button.setAttribute('id', prop);
-                button.textContent = 'Chat with ' + prop;
+                button.setAttribute('id', data[i].name);
+                button.textContent = 'Chat with ' + data[i].name;
                 button.addEventListener('click', function() {
                     self.chatsWith(button.id);
                     self.status.textContent = 'Chatting with ' + button.id;
