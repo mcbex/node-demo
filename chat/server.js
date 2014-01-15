@@ -46,94 +46,139 @@ function createServer() {
 
 };
 
-// TODO add users class with: getters/setters for friends, hasFriend etc
+// TODO
 // better error handling
 // put socket stuff in separate file
 // get rid of needing to pass the username
 // chat with multiple friends
 // stop chat with one friend
 
+// store users by id instead of name?
+
+function Users() {
+    this.users = {};
+}
+
+Users.prototype.addUser = function(name, id) {
+    this.users[name] = {
+        name: name,
+        id: id
+    };
+};
+
+Users.prototype.getUser = function(name) {
+    return this.users[name];
+};
+
+Users.prototype.getAllUsers = function() {
+    var all = [];
+
+    for (var prop in this.users) {
+        all.push(this.users[prop]);
+    }
+
+    return all;
+};
+
+Users.prototype.setFriend = function(name, friendName) {
+    this.users[name].friend = friendName;
+    this.users[friendName].friend = name;
+};
+
+Users.prototype.getFriend = function(name) {
+    var user = this.users[name],
+        friend = user.friend;
+
+    return this.users[friend];
+};
+
+Users.prototype.hasFriends = function(name) {
+    return !!this.users[name].friend;
+};
+
+Users.prototype.unsetFriend = function(name) {
+    var user = this.users[name],
+        friend = this.getFriend(name);
+
+    user && delete user.friend;
+    friend && delete friend.friend;
+};
+
+Users.prototype.deleteUser = function(name) {
+    this.unsetFriend(name);
+
+    delete this.users[name];
+};
+
+
 function setUpSocket() {
 
     var io = require('socket.io').listen(server),
-        users = {};
+        users = new Users();
 
     io.on('connection', function(socket) {
 
         socket.emit('connected');
 
         socket.on('set-name', function(data) {
-            socket.emit('name-set');
-            users[data] = { id: socket.id };
+            users.addUser(data, socket.id);
             socket.set('user', data);
 
-            io.sockets.emit('friends', users);
+            socket.emit('name-set');
+            io.sockets.emit('friends', users.getAllUsers());
         });
 
         socket.on('start-chat', function(data) {
-            var friendId = users[data.friend].id,
-                userId = users[data.user].id;
+            users.setFriend(data.user, data.friend);
 
-            users[data.user].friend =  data.friend;
-            users[data.friend].friend = data.user;
-
-            io.sockets.socket(friendId).emit('chat-started', data.user);
-            io.sockets.socket(userId).emit('chat-started', data.friend);
+            io.sockets.socket(users.getFriend(data.user).id)
+                .emit('chat-started', data.user);
+            io.sockets.socket(users.getUser(data.user).id)
+                .emit('chat-started', data.friend);
         });
 
         socket.on('typing', function(data) {
-            var friendId;
-
-            if (!users[data.user].friend) {
+            if (!users.hasFriends(data.user)) {
                 socket.emit('error', { message: 'not chatting with anyone' });
                 return;
             }
 
-            friendId = users[users[data.user].friend].id;
-
-            io.sockets.socket(friendId).emit('chat-input', data.user + ' is typing');
+            io.sockets.socket(users.getFriend(data.user).id)
+                .emit('chat-input', data.user + ' is typing');
         });
 
         socket.on('deleted', function(data) {
-            var friendId = users[users[data.user].friend].id;
-
-            io.sockets.socket(friendId).emit('chat-deleted');
+            io.sockets.socket(users.getFriend(data.user).id)
+                .emit('chat-deleted');
         });
 
         socket.on('submit', function(data) {
-            var friendId;
-
-            if (!users[data.user].friend) {
+            if (!users.hasFriends(data.user)) {
                 socket.emit('error', { message: 'not chatting with anyone' });
                 return;
             }
 
-            friendId= users[users[data.user].friend].id;
-
-            io.sockets.socket(friendId).emit('chat-recieved', {
-                user: data.user,
-                message: data.message
-            });
+            io.sockets.socket(users.getFriend(data.user).id)
+                .emit('chat-recieved', {
+                    user: data.user,
+                    message: data.message
+                });
         });
 
         socket.on('disconnect', function() {
-            if (!users) {
-                return;
-            }
-
             socket.get('user', function(err, name) {
-                var friendId;
+                if (!users.getUser(name)) {
+                    return;
+                }
 
-                if (users[name] && users[name].friend) {
-                    friendId = users[users[name].friend].id;
-                    io.sockets.socket(friendId).emit('chat-ended');
-
-                    delete users[users[name].friend].friend;
+                if (users.hasFriends(name)) {
+                    io.sockets.socket(users.getFriend(name).id)
+                        .emit('chat-ended');
                 } else {
                     io.sockets.emit('friend-disconnected', name);
                 }
 
-                delete users[name];
+                users.deleteUser(name);
             });
         });
 
