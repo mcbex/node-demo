@@ -8,7 +8,6 @@ Chatter.prototype.submit = function(inputType, inputValue) {
     var elem;
 
     this.socket.emit('submit', { 
-        user: this.username,
         message: this.value
     });
 
@@ -21,9 +20,9 @@ Chatter.prototype.typing = function() {
     this.value = this.input.value;
 
     if (this.value) {
-        this.socket.emit('typing', { user: this.username });
+        this.socket.emit('typing');
     } else {
-        this.socket.emit('deleted', { user: this.username });
+        this.socket.emit('deleted');
     }
 };
 
@@ -32,7 +31,7 @@ Chatter.prototype._listenToChats = function() {
         elem;
 
     this.socket.on('chat-started', function(data) {
-        self.status.textContent = 'Chatting with ' + data;
+        self.status.textContent = 'Chatting with ' + data.name;
         self.friend = data;
     });
 
@@ -67,8 +66,7 @@ Chatter.prototype.chatsWith = function(friend) {
     var self = this;
 
     this.socket.emit('start-chat', {
-        user: this.username,
-        friend: friend
+        friendId: friend
     });
 };
 
@@ -86,6 +84,22 @@ Chatter.prototype._makeFriendsContainer = function() {
     return friends;
 };
 
+Chatter.prototype._makeButton = function(data) {
+    var button, self = this;
+
+    button = document.createElement('button');
+    button.setAttribute('id', data.id);
+    button.setAttribute('data-name', data.name);
+    button.textContent = 'Chat with ' + data.name;
+    button.addEventListener('click', function() {
+        self.chatsWith(button.id);
+        self.status.textContent = 'Chatting with ' + button['data-name'];
+    });
+
+    return button;
+
+};
+
 Chatter.prototype.getFriends = function() {
     var self = this,
         wrapper, status, button;
@@ -96,14 +110,7 @@ Chatter.prototype.getFriends = function() {
         for (var i = 0, l = data.length; i < l; i++) {
 
             if (data[i].name != self.username) {
-                button = document.createElement('button');
-                button.setAttribute('id', data[i].name);
-                button.textContent = 'Chat with ' + data[i].name;
-                button.addEventListener('click', function() {
-                    self.chatsWith(button.id);
-                    self.status.textContent = 'Chatting with ' + button.id;
-                });
-
+                button = self._makeButton(data[i]);
                 wrapper.appendChild(button);
             }
         }
@@ -116,7 +123,7 @@ Chatter.prototype.getFriends = function() {
         }
 
         if (!button) {
-           self. status.textContent = 'no friends online';
+           self.status.textContent = 'no friends online';
         } else {
             self.status.textContent = '';
         }
