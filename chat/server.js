@@ -49,25 +49,25 @@ function createServer() {
 // TODO
 // better error handling
 // put socket stuff in separate file
-// get rid of needing to pass the username
 // chat with multiple friends
 // stop chat with one friend
+// standardize api so we always expect the same arg type? obj?
+// entered text event
 
-// store users by id instead of name?
 
 function Users() {
     this.users = {};
 }
 
-Users.prototype.addUser = function(name, id) {
-    this.users[name] = {
-        name: name,
-        id: id
+Users.prototype.addUser = function(id, name) {
+    this.users[id] = {
+        id: id,
+        name: name
     };
 };
 
-Users.prototype.getUser = function(name) {
-    return this.users[name];
+Users.prototype.getUser = function(id) {
+    return this.users[id];
 };
 
 Users.prototype.getAllUsers = function() {
@@ -80,34 +80,34 @@ Users.prototype.getAllUsers = function() {
     return all;
 };
 
-Users.prototype.setFriend = function(name, friendName) {
-    this.users[name].friend = friendName;
-    this.users[friendName].friend = name;
+Users.prototype.setFriend = function(id, friendId) {
+    this.users[id].friend = friendId;
+    this.users[friendId].friend = id;
 };
 
-Users.prototype.getFriend = function(name) {
-    var user = this.users[name],
+Users.prototype.getFriend = function(id) {
+    var user = this.users[id],
         friend = user.friend;
 
     return this.users[friend];
 };
 
-Users.prototype.hasFriends = function(name) {
-    return !!this.users[name].friend;
+Users.prototype.hasFriends = function(id) {
+    return !!this.users[id].friend;
 };
 
-Users.prototype.unsetFriend = function(name) {
-    var user = this.users[name],
-        friend = this.getFriend(name);
+Users.prototype.unsetFriend = function(id) {
+    var user = this.users[id],
+        friend = this.getFriend(id);
 
     user && delete user.friend;
     friend && delete friend.friend;
 };
 
-Users.prototype.deleteUser = function(name) {
-    this.unsetFriend(name);
+Users.prototype.deleteUser = function(id) {
+    this.unsetFriend(id);
 
-    delete this.users[name];
+    delete this.users[id];
 };
 
 
@@ -121,65 +121,66 @@ function setUpSocket() {
         socket.emit('connected');
 
         socket.on('set-name', function(data) {
-            users.addUser(data, socket.id);
-            socket.set('user', data);
+            users.addUser(socket.id, data);
 
             socket.emit('name-set');
             io.sockets.emit('friends', users.getAllUsers());
         });
 
         socket.on('start-chat', function(data) {
-            users.setFriend(data.user, data.friend);
+            var user = users.getUser(socket.id),
+                friend;
 
-            io.sockets.socket(users.getFriend(data.user).id)
-                .emit('chat-started', data.user);
-            io.sockets.socket(users.getUser(data.user).id)
-                .emit('chat-started', data.friend);
+            users.setFriend(socket.id, data.friendId);
+            friend = users.getFriend(user.id);
+
+            io.sockets.socket(friend.id).emit('chat-started', user);
+            socket.emit('chat-started', friend);
         });
 
-        socket.on('typing', function(data) {
-            if (!users.hasFriends(data.user)) {
-                socket.emit('error', { message: 'not chatting with anyone' });
+        socket.on('typing', function() {
+            if (!users.hasFriends(socket.id)) {
+                socket.emit('error', { message: 'Not chatting with anyone' });
                 return;
             }
 
-            io.sockets.socket(users.getFriend(data.user).id)
-                .emit('chat-input', data.user + ' is typing');
+            io.sockets.socket(users.getFriend(socket.id).id)
+                .emit('chat-input', users.getUser(socket.id).name + ' is typing');
         });
 
-        socket.on('deleted', function(data) {
-            io.sockets.socket(users.getFriend(data.user).id)
+        socket.on('deleted', function() {
+            io.sockets.socket(users.getFriend(socket.id).id)
                 .emit('chat-deleted');
         });
 
         socket.on('submit', function(data) {
-            if (!users.hasFriends(data.user)) {
-                socket.emit('error', { message: 'not chatting with anyone' });
+            if (!users.hasFriends(socket.id)) {
+                socket.emit('error', { message: 'Not chatting with anyone' });
                 return;
             }
 
-            io.sockets.socket(users.getFriend(data.user).id)
+            io.sockets.socket(users.getFriend(socket.id).id)
                 .emit('chat-recieved', {
-                    user: data.user,
+                    user: users.getUser(socket.id).name,
                     message: data.message
                 });
         });
 
         socket.on('disconnect', function() {
-            socket.get('user', function(err, name) {
-                if (!users.getUser(name)) {
-                    return;
-                }
+            var user = users.getUser(socket.id);
 
-                if (users.hasFriends(name)) {
-                    io.sockets.socket(users.getFriend(name).id)
-                        .emit('chat-ended');
-                } else {
-                    io.sockets.emit('friend-disconnected', name);
-                }
+            if (!user) {
+                return;
+            }
 
-                users.deleteUser(name);
-            });
+            if (users.hasFriends(socket.id)) {
+                io.sockets.socket(users.getFriend(socket.id).id)
+                    .emit('chat-ended', user);
+            } else {
+                io.sockets.emit('friend-disconnected', user);
+            }
+
+            users.deleteUser(socket.id);
         });
 
     });
